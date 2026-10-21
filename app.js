@@ -163,7 +163,7 @@ let state = {
 
 // Cambia este texto cada vez que publiques: aparece al pie del login y en la consola,
 // y sirve para comprobar qué versión está sirviendo realmente Vercel / Electron.
-const APP_VERSION = "2026.10.20-recuperacion";
+const APP_VERSION = "10.0";
 console.info("[SalesStock Pro] versión", APP_VERSION);
 
 let sessionLoading = false; // evita que onAuthStateChanged interfiera mientras se registra una cuenta
@@ -2530,7 +2530,7 @@ function renderLogin() {
       ${state.loginError ? '<div style="background:#fee2e2;color:#dc2626;padding:12px;border-radius:8px;margin-bottom:15px;text-align:center;font-weight:600">' + state.loginError + "</div>" : ""}
       <div class="form-group">
         <label>Usuario o correo</label>
-        <input class="form-control" name="u" type="text" autocomplete="username" placeholder="usuario o correo@ejemplo.com" required>
+        <input class="form-control" name="u" type="text" autocomplete="username" placeholder="Usuario o Correo" required>
       </div>
       <div class="form-group">
         <label>Contraseña</label>
@@ -2552,7 +2552,7 @@ function renderLogin() {
       <p style="color:#64748b;font-size:14px;line-height:1.5;margin-bottom:14px">Escribe el correo de tu cuenta y te enviaremos un enlace para crear una contraseña nueva.</p>
       <div class="form-group">
         <label>Correo</label>
-        <input class="form-control" name="fe" type="email" inputmode="email" autocomplete="email" placeholder="correo@ejemplo.com" value="${escapeHtml(state.forgotEmail || "")}" required>
+        <input class="form-control" name="fe" type="email" inputmode="email" autocomplete="email" placeholder="Correo@gmail.com" value="${escapeHtml(state.forgotEmail || "")}" required>
       </div>
       <button type="submit" class="btn btn-primary" style="width:100%" ${forgotBlocked ? "disabled" : ""}>${state.forgotBusy ? "Enviando..." : "Enviar enlace"}</button>
       <div style="background:#f0f9ff;border:1px solid #bae6fd;color:#0369a1;padding:10px 12px;border-radius:8px;margin-top:14px;font-size:13px;line-height:1.5">
@@ -2572,7 +2572,7 @@ function renderLogin() {
       </div>
       <div class="form-group">
         <label>Correo personal</label>
-        <input class="form-control" name="re" type="email" inputmode="email" autocomplete="email" placeholder="correo@ejemplo.com" required>
+        <input class="form-control" name="re" type="email" inputmode="email" autocomplete="email" placeholder="Correo@gmail.com" required>
         <small style="display:block;color:#64748b;margin-top:4px">Con este correo entrarás y podrás recuperar tu contraseña. Te enviaremos un enlace para verificarlo.</small>
       </div>
       <div class="form-group">
@@ -2595,7 +2595,7 @@ function renderLogin() {
       ${state.loginError ? '<div style="background:#fee2e2;color:#dc2626;padding:12px;border-radius:8px;margin-bottom:15px;text-align:center;font-weight:600">' + state.loginError + "</div>" : ""}
       <div class="form-group">
         <label>Clave de Licencia</label>
-        <input class="form-control" name="lk" type="text" placeholder="PRO-2024-XXXX-XXXX" required>
+        <input class="form-control" name="lk" type="text" placeholder="Licencia" required>
       </div>
       <button type="submit" class="btn btn-primary" style="width:100%">Validar licencia</button>
     </form>
@@ -2630,7 +2630,7 @@ function renderActivateLicense() {
          <form onsubmit="event.preventDefault();activateLicense(this.lk.value)">
            <div class="form-group">
              <label>Clave de Licencia</label>
-             <input class="form-control" name="lk" type="text" placeholder="PRO-2024-XXXX-XXXX" required>
+             <input class="form-control" name="lk" type="text" placeholder="Licencia" required>
            </div>
            <button type="submit" class="btn btn-primary" style="width:100%">Activar Licencia</button>
            <div style="margin-top:10px;text-align:center">
