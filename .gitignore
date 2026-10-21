@@ -1,0 +1,28 @@
+# Firebase config (contains real API keys — DO NOT COMMIT)
+firebase-config.js
+
+# Environment variables
+.env
+.env.local
+
+# Dependencies
+node_modules/
+
+# Build artifacts
+dist/
+build/
+
+# Test coverage
+coverage/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Firebase
+.firebase/
+.firebaserc

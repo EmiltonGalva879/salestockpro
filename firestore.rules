@@ -1,0 +1,167 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ==================== FUNCIONES ====================
+
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    // Administrador del sistema. Dos formas de entrar (las dos son la misma persona):
+    //  1) La cuenta histórica sistemapro@sistema.local.
+    //  2) Tu correo REAL, solo si Firebase lo tiene VERIFICADO.
+    // Correo real del administrador (debe ser el mismo que DB_SUPER_REAL_EMAIL en js/services/db.js).
+    function isSuper() {
+      return signedIn() && (
+        request.auth.token.email == 'sistemapro@sistema.local'
+        || (request.auth.token.email == 'emiltongalva879@gmail.com'
+            && request.auth.token.email_verified == true)
+      );
+    }
+
+    function profilePath(uid) {
+      return /databases/$(database)/documents/profiles/$(uid);
+    }
+
+    function licensePath(key) {
+      return /databases/$(database)/documents/licenseKeys/$(key);
+    }
+
+    // Una cuenta es "miembro" solo si tiene perfil, y el perfil solo se crea
+    // al canjear una licencia válida (o lo crea el administrador de su empresa).
+    function hasProfile() {
+      return signedIn() && exists(profilePath(request.auth.uid));
+    }
+
+    function myProfile() {
+      return get(profilePath(request.auth.uid)).data;
+    }
+
+    function isMember() {
+      return isSuper() || hasProfile();
+    }
+
+    function isCompanyAdmin(companyId) {
+      return hasProfile()
+        && myProfile().role == 'ADMIN'
+        && myProfile().companyId == companyId;
+    }
+
+    // Registro de una empresa nueva: el perfil y la licencia se escriben en el
+    // mismo lote, y la licencia debe estar libre antes y usada por este usuario después.
+    function isSelfRegistration(uid) {
+      let d = request.resource.data;
+      return d.keys().hasOnly(['uid', 'username', 'email', 'role', 'companyId', 'licenseKey', 'createdBy', 'created'])
+        && d.uid == uid
+        && d.companyId == uid
+        && d.role == 'ADMIN'
+        && d.createdBy == '1'
+        && d.licenseKey is string
+        && get(licensePath(d.licenseKey)).data.used == false
+        && getAfter(licensePath(d.licenseKey)).data.used == true
+        && getAfter(licensePath(d.licenseKey)).data.usedBy == uid;
+    }
+
+    // ==================== PERFILES ====================
+
+    match /profiles/{uid} {
+      allow get: if isSuper() || (signedIn() && request.auth.uid == uid);
+      allow list: if isSuper();
+
+      allow create: if isSuper()
+        || (signedIn() && request.auth.uid == uid && isSelfRegistration(uid))
+        || (isCompanyAdmin(request.resource.data.companyId)
+            && request.auth.uid != uid
+            && request.resource.data.keys().hasOnly(['uid', 'username', 'email', 'role', 'companyId', 'createdBy', 'created'])
+            && request.resource.data.uid == uid
+            && request.resource.data.role in ['ADMIN', 'USER']);
+
+      allow update: if isSuper()
+        || (isCompanyAdmin(resource.data.companyId)
+            && request.auth.uid != uid
+            && request.resource.data.companyId == resource.data.companyId
+            && request.resource.data.role in ['ADMIN', 'USER'])
+        // Cada persona solo puede sincronizar SU correo con el que Firebase ya verificó
+        || (signedIn()
+            && request.auth.uid == uid
+            && request.auth.token.email_verified == true
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['email'])
+            && request.resource.data.email == request.auth.token.email);
+
+      allow delete: if isSuper()
+        || (isCompanyAdmin(resource.data.companyId) && request.auth.uid != uid);
+    }
+
+    // ==================== NOMBRES DE USUARIO ====================
+    // usernames/{usuario en minúsculas} -> { uid, email, username }
+    // Sirve para entrar escribiendo el usuario en vez del correo. Se puede LEER un registro
+    // si se conoce el nombre exacto (así se descubre el correo asociado); no se puede listar.
+    // Cada persona solo crea/cambia el registro de SU propio usuario y SU propio correo.
+    match /usernames/{name} {
+      allow get: if true;
+      allow list: if isSuper();
+
+      allow create: if signedIn()
+        && request.resource.data.keys().hasOnly(['uid', 'email', 'username'])
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.email == request.auth.token.email
+        && request.resource.data.username is string
+        && request.resource.data.username.lower() == name
+        && hasProfile()
+        && myProfile().username.lower() == name;
+
+      allow update: if signedIn()
+        && resource.data.uid == request.auth.uid
+        && request.resource.data.keys().hasOnly(['uid', 'email', 'username'])
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.email == request.auth.token.email
+        && request.resource.data.username.lower() == name;
+
+      allow delete: if isSuper() || (signedIn() && resource.data.uid == request.auth.uid);
+    }
+
+    // ==================== LICENCIAS ====================
+
+    match /licenseKeys/{key} {
+      // Se puede consultar una licencia solo si se conoce su clave exacta; no se pueden listar.
+      allow get: if signedIn();
+      allow list: if isSuper();
+      allow create, delete: if isSuper();
+      allow update: if isSuper()
+        || (signedIn()
+            && resource.data.used == false
+            && request.resource.data.used == true
+            && request.resource.data.usedBy == request.auth.uid
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['used', 'usedBy', 'usedAt', 'companyId']));
+    }
+
+    // ==================== DATOS DEL NEGOCIO (por empresa) ====================
+    // Ruta: companies/{companyId}/data/{key}
+    // Cada cuenta solo accede a la ruta de SU empresa (companyId de su perfil).
+
+    function ownsCompany(cid) {
+      return isSuper() || (hasProfile() && myProfile().companyId == cid);
+    }
+
+    match /companies/{cid}/data/{docId} {
+      allow read: if ownsCompany(cid);
+      allow create, update: if ownsCompany(cid)
+        && request.resource.data.keys().hasOnly(['items'])
+        && request.resource.data.items is list
+        && request.resource.data.items.size() <= 10000;
+      allow delete: if isSuper();
+    }
+
+    // Consulta de todas las empresas a la vez: solo el administrador del sistema
+    match /{path=**}/data/{docId} {
+      allow read: if isSuper();
+    }
+
+    // Todo lo demás queda bloqueado
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
