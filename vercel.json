@@ -1,0 +1,5 @@
+{
+  "buildCommand": "echo Sitio estatico sin compilacion",
+  "installCommand": "echo Sin instalacion",
+  "outputDirectory": "."
+}
