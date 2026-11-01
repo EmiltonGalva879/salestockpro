@@ -904,13 +904,14 @@ function saveProduct(product) {
   DB.set("products", products);
 }
 
-function saveQuickProduct(name, price, stock, minStock, barcode) {
+function saveQuickProduct(name, price, purchasePrice, stock, minStock, barcode) {
   const products = DB.get("products");
   const newProduct = {
     id: Date.now(),
     name: name,
-    price: parseFloat(price),
-    stock: parseInt(stock) || 0,
+    price: Number(price) || 0,
+    purchasePrice: Number(purchasePrice) || 0,
+    stock: parseInt(stock, 10) || 0,
     minStock: parseInt(minStock) || 5,
     barcode: barcode,
     createdBy: String(state.user.id),
@@ -936,9 +937,32 @@ function getSales() {
   const fiscalSales = DB.get("sales_fiscal") || [];
   const normalSales = DB.get("sales_normal") || [];
   const all = [...sales, ...fiscalSales, ...normalSales];
+
+  // Una misma venta puede existir en la colección antigua "sales" y
+  // también en "sales_fiscal" o "sales_normal". Unificar por empresa e ID
+  // evita contarla dos veces en reportes, dashboard y listados.
+  const uniqueSales = [];
+  const seen = new Set();
+
+  for (const sale of all) {
+    if (!sale || typeof sale !== "object") continue;
+
+    const saleId = sale.id;
+    // No deduplicar ventas sin ID: podrían ser transacciones legítimas distintas.
+    const key = saleId !== undefined && saleId !== null && String(saleId) !== ""
+      ? `${String(sale.companyId ?? "")}::${String(saleId)}`
+      : null;
+
+    if (key !== null) {
+      if (seen.has(key)) continue;
+      seen.add(key);
+    }
+    uniqueSales.push(sale);
+  }
+
   const companyId = getCompanyId();
-  if (!companyId) return all;
-  return all.filter((s) => String(s.companyId) === companyId);
+  if (!companyId) return uniqueSales;
+  return uniqueSales.filter((s) => String(s.companyId) === companyId);
 }
 function getVisibleSales() {
   const sales = getSales();
@@ -1177,10 +1201,12 @@ async function cancelCart() {
 
 function showPaymentOptions(mode) {
   const subtotal = getCartTotal();
-  const itbis = subtotal * ITBIS_RATE;
-  const total = subtotal + itbis;
+  const itbis = 0;
+  const total = subtotal;
+
   const receiptType =
     localStorage.getItem("salesstock_receiptType") || "normal";
+
   state.modal = {
     type: "payment",
     subtotal: subtotal,
@@ -1189,6 +1215,7 @@ function showPaymentOptions(mode) {
     paymentMode: mode || "sale",
     receiptType: receiptType,
   };
+
   render();
 }
 
@@ -1371,9 +1398,9 @@ function completeSale(paymentType, customerData) {
   const modoPago = paymentType || "contado";
   const isCredit = modoPago === "credito";
   const subtotal = getCartTotal();
-  const itbis = subtotal * ITBIS_RATE;
-  const interest = isCredit ? subtotal * 0.05 : 0;
-  const finalTotal = subtotal + itbis + interest;
+const itbis = 0;
+const interest = isCredit ? subtotal * 0.05 : 0;
+const finalTotal = subtotal + interest;
   const receiptType = customerData.receiptType || "normal";
 
   const sale = {
@@ -1747,7 +1774,10 @@ function getStats() {
   };
 }
 
-const fmtMoney = (v) => "RD$" + v.toFixed(2);
+const fmtMoney = (v) => {
+  const amount = Number(v);
+  return "RD$" + (Number.isFinite(amount) ? amount : 0).toFixed(2);
+};
 const fmtMoneyInvoice = (v) => "RD$ " + Number(v).toFixed(2);
 const round2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
 const roundPeso = (n) => Math.round(Number(n) || 0);
@@ -1968,10 +1998,10 @@ function generateQuoteInvoice(quote) {
     const lineH = 7;
     const pu = "$" + Math.round(item.price);
     const tot = "$" + Math.round(item.subtotal);
-    doc.text(String(item.quantity), colQty, y + 1.2, { align: "left" });
-    doc.text(name, colDescStart, y + 1.2, { align: "left" });
-    doc.text(pu, colUnit, y + 1.2, { align: "right" });
-    doc.text(tot, colTotal, y + 1.2, { align: "right" });
+    doc.text(String(item.quantity), colQty, y + 1.5, { align: "left" });
+    doc.text(name, colDescStart, y + 1.5, { align: "left" });
+    doc.text(pu, colUnit, y + 1.5, { align: "right" });
+    doc.text(tot, colTotal, y + 1.5, { align: "right" });
     y += lineH + 2;
   });
 
@@ -2136,10 +2166,10 @@ function buildInvoiceDocument(sale, pageH) {
     const puWidth = doc.getTextWidth(pu);
     const nameMaxW = colUnit - puWidth - 2 - colDescStart;
     const name = abbreviateText(doc, item.name, nameMaxW);
-    doc.text(String(item.quantity), colQty, y + 1.2, { align: "left" });
-    doc.text(name, colDescStart, y + 1.2, { align: "left" });
-    doc.text(pu, colUnit, y + 1.2, { align: "right" });
-    doc.text(tot, colTotal, y + 1.2, { align: "right" });
+    doc.text(String(item.quantity), colQty, y + 1.5, { align: "left" });
+    doc.text(name, colDescStart, y + 1.5, { align: "left" });
+    doc.text(pu, colUnit, y + 1.5, { align: "right" });
+    doc.text(tot, colTotal, y + 1.5, { align: "right" });
     y += lineH + 2;
   });
 
@@ -2153,10 +2183,7 @@ function buildInvoiceDocument(sale, pageH) {
     align: "right",
   });
   y += 5;
-  doc.text("ITBIS (18%): " + fmtMoneyInvoice(sale.itbis), colTotal, y, {
-    align: "right",
-  });
-  y += 5;
+  
   if (sale.paymentType === "credito") {
     doc.text("Interés (5%): " + fmtMoneyInvoice(sale.interest), colTotal, y, {
       align: "right",
@@ -2207,7 +2234,6 @@ function buildInvoiceDocument(sale, pageH) {
   y += 4;
   pdfLine(doc, MARGIN_X, INNER_W, y);
   y += 6;
-
   const ticketBarcodeY = y;
   const ticketCanvas = document.createElement("canvas");
   ticketCanvas.width = 300;
@@ -2714,8 +2740,8 @@ function createFiadoFromCart(customerName, customerPhone, notes) {
   if (state.cart.length === 0) return alert("El carrito está vacío");
 
   const subtotal = getCartTotal();
-  const itbis = subtotal * ITBIS_RATE;
-  const total = roundPeso(subtotal + itbis);
+const itbis = 0;
+const total = roundPeso(subtotal);
 
   // Decrease stock
   const products = getProducts();
@@ -3305,10 +3331,10 @@ function buildFiadoDocument(fiado) {
     const lineH = 7;
     const pu = "$" + Math.round(item.price);
     const tot = "$" + Math.round(item.subtotal);
-    doc.text(String(item.quantity), colQty, y + 1.2, { align: "left" });
-    doc.text(name, colDescStart, y + 1.2, { align: "left" });
-    doc.text(pu, colUnit, y + 1.2, { align: "right" });
-    doc.text(tot, colTotal, y + 1.2, { align: "right" });
+    doc.text(String(item.quantity), colQty, y + 1.5, { align: "left" });
+    doc.text(name, colDescStart, y + 1.5, { align: "left" });
+    doc.text(pu, colUnit, y + 1.5, { align: "right" });
+    doc.text(tot, colTotal, y + 1.5, { align: "right" });
     y += lineH + 2;
   });
 
@@ -3321,11 +3347,8 @@ function buildFiadoDocument(fiado) {
   doc.text("Subtotal: " + fmtMoneyInvoice(fiado.subtotal), colTotal, y, {
     align: "right",
   });
-  y += 4;
-  doc.text("ITBIS (18%): " + fmtMoneyInvoice(fiado.itbis), colTotal, y, {
-    align: "right",
-  });
-  y += 4;
+  y += 5;
+ 
   doc.setFont(FONT, "bold");
   doc.setFontSize(12);
   doc.text("TOTAL: " + fmtMoneyInvoice(fiado.total), colTotal, y, {
@@ -3412,7 +3435,7 @@ function renderNewFiadoModal() {
               <div style="display:flex;flex-direction:column;gap:6px">
                 <div style="display:flex;justify-content:space-between"><span>Productos en carrito:</span><span>${state.cart.length}</span></div>
                 <div style="display:flex;justify-content:space-between"><span>Subtotal:</span><span>${fmtMoneyInvoice(getCartTotal())}</span></div>
-                <div style="display:flex;justify-content:space-between"><span>ITBIS (18%):</span><span>${fmtMoneyInvoice(getCartTotal() * ITBIS_RATE)}</span></div>
+                
                 <div style="display:flex;justify-content:space-between;font-size:18px;font-weight:700;color:#10b981;border-top:1px solid #e2e8f0;padding-top:8px;margin-top:4px"><span>Total:</span><span>${fmtMoneyInvoice(getCartTotal() * (1 + ITBIS_RATE))}</span></div>
               </div>
             </div>
@@ -3690,7 +3713,7 @@ function renderSaleInvoiceHtml(sale) {
     ? `
     <div class="inv-section">
       <div><strong>Subtotal:</strong> ${fmtMoneyInvoice(sale.subtotal)}</div>
-      <div><strong>ITBIS (18%):</strong> ${fmtMoneyInvoice(sale.itbis)}</div>
+      
     </div>
   `
     : "";
@@ -3767,16 +3790,24 @@ function renderProducts() {
     <div class="card" style="background:#1e293b;color:#fff;padding:20px;margin-bottom:20px">
       <div style="font-size:13px;margin-bottom:8px;color:#94a3b8">ESCANER DE PRODUCTOS</div>
       <div style="display:flex;gap:10px">
-        <input id="scanner-prod" class="form-control" style="font-size:20px;padding:16px;text-align:center;font-weight:700;background:#fff;color:#1e293b" placeholder="Escanear codigo de barras..." onkeydown="if(event.key==='Enter'){scanProductBarcode(this.value);this.value=''}">
+        <input id="scanner-prod" class="form-control" style="font-size:20px;padding:16px;text-align:center;font-weight:700;background:#fff;color:#1e293b" placeholder="Escanear codigo" onkeydown="if(event.key==='Enter'){scanProductBarcode(this.value);this.value=''}">
         <button class="btn btn-primary" onclick="startCameraScan()" style="padding:16px 20px;font-size:18px">📷</button>
       </div>
     </div>
     <div class="search">
-      <input class="search-input" placeholder="Buscar productos..." value="${escapeHtml(state.search)}" oninput="onProductSearch(this.value)">
+      <input class="search-input" placeholder="Buscar productos" value="${escapeHtml(state.search)}" oninput="onProductSearch(this.value)">
     </div>
     <div class="card">
       <table>
-      <thead><tr><th>Nombre</th><th>Precio</th><th>Stock</th><th>Mín.</th><th>Barcode</th><th>Acciones</th></tr></thead>
+        <thead><tr>
+          <th>Nombre</th>
+          <th>Precio de compra</th>
+          <th>Precio de venta</th>
+          <th>Stock</th>
+          <th>Stock mínimo</th>
+          <th>Código</th>
+          <th>Acciones</th>
+        </tr></thead>
         <tbody>
           ${
             products.length
@@ -3785,8 +3816,9 @@ function renderProducts() {
                     (p) => `
             <tr class="${p.stock <= p.minStock ? "low-stock" : ""}">
               <td><strong>${p.name}</strong></td>
-              <td>${fmtMoney(p.price)}</td>
-              <td>${p.stock}</td>
+              <td>${fmtMoney(p.purchasePrice ?? 0)}</td>
+              <td>${fmtMoney(p.price ?? p.salePrice ?? 0)}</td>
+              <td>${Number(p.stock) || 0}</td>
               <td>${p.minStock}</td>
               <td style="font-family:monospace;font-size:12px">${p.barcode || "-"}</td>
               <td>
@@ -3801,7 +3833,7 @@ function renderProducts() {
           `,
                   )
                   .join("")
-              : '<tr><td colspan="6"><div class="empty">No se encontraron productos</div></td></tr>'
+              : '<tr><td colspan="7"><div class="empty">No se encontraron productos</div></td></tr>'
           }
         </tbody>
       </table>
@@ -4469,13 +4501,14 @@ function renderModal() {
       <div class="modal-overlay" onclick="state.modal=null;render()">
         <div class="modal" onclick="event.stopPropagation()">
           <div class="modal-header"><h2 class="modal-title">${p.id ? "Editar" : "Nuevo"} Producto</h2><button class="btn btn-secondary" onclick="state.modal=null;render()">✕</button></div>
-          <form onsubmit="event.preventDefault();saveProduct({id:${p.id || "null"},name:this.n.value,price:parseFloat(this.pr.value),stock:parseInt(this.s.value),minStock:parseInt(this.m.value),barcode:this.b.value});state.modal=null;render()">
+          <form onsubmit="event.preventDefault();saveProduct({id:${p.id || "null"},name:this.n.value,price:Number(this.pr.value)||0,purchasePrice:Number(this.purchasePrice.value)||0,stock:parseInt(this.s.value,10)||0,minStock:parseInt(this.m.value,10)||0,barcode:this.b.value});state.modal=null;render()">
             <div class="modal-body">
-              <div class="form-group"><label>Nombre *</label><input class="form-control" name="n" value="${p.name || ""}" required></div>
+              <div class="form-group"><label>Nombre</label><input class="form-control" name="n" value="${p.name || ""}" required></div>
               <div class="form-row">
-                <div class="form-group"><label>Precio *</label><input class="form-control" name="pr" type="number" step="0.01" value="${p.price || ""}" required></div>
-                <div class="form-group"><label>Stock</label><input class="form-control" name="s" type="number" value="${p.stock || ""}"></div>
+                <div class="form-group"><label>Precio de compra</label><input class="form-control" name="purchasePrice" type="number" min="0" step="0.01" value="${p.purchasePrice ?? 0}"></div>
+                <div class="form-group"><label>Precio de venta</label><input class="form-control" name="pr" type="number" min="0" step="0.01" value="${p.price ?? p.salePrice ?? 0}" required></div>
               </div>
+              <div class="form-group"><label>Stock</label><input class="form-control" name="s" type="number" min="0" step="1" value="${p.stock ?? 0}"></div>
               <div class="form-row">
                 <div class="form-group"><label>Stock Mínimo</label><input class="form-control" name="m" type="number" value="${p.minStock || 10}"></div>
                 <div class="form-group"><label>Barcode</label><input class="form-control" name="b" value="${p.barcode || ""}"></div>
@@ -4567,8 +4600,8 @@ function renderModal() {
                    <span>${fmtMoneyInvoice(m.subtotal)}</span>
                  </div>
                  <div style="display:flex;justify-content:space-between">
-                   <span>ITBIS (18%):</span>
-                   <span>${fmtMoneyInvoice(m.itbis)}</span>
+    
+                  
                  </div>
                  <div style="display:flex;justify-content:space-between;font-size:18px;font-weight:700;color:#10b981;border-top:1px solid #e2e8f0;padding-top:8px;margin-top:4px">
                    <span>Total:</span>
@@ -4610,16 +4643,17 @@ function renderModal() {
       <div class="modal-overlay" onclick="state.modal=null;render()">
         <div class="modal" onclick="event.stopPropagation()">
           <div class="modal-header"><h2 class="modal-title">Agregar Producto</h2><button class="btn btn-secondary" onclick="state.modal=null;render()">✕</button></div>
-          <form onsubmit="event.preventDefault();saveQuickProduct(this.n.value,this.pr.value,this.s.value,this.m.value,this.b.value)">
+          <form onsubmit="event.preventDefault();saveQuickProduct(this.n.value,this.pr.value,this.purchasePrice.value,this.s.value,this.m.value,this.b.value)">
             <div class="modal-body">
               <div class="alert-box" style="background:#dbeafe;color:#1e40af;border-color:#93c5fd;margin-bottom:15px">
                 Código detectado: <strong>${m.barcode}</strong>
               </div>
               <div class="form-group"><label>Nombre *</label><input class="form-control" name="n" placeholder="Nombre del producto" required></div>
               <div class="form-row">
-                <div class="form-group"><label>Precio *</label><input class="form-control" name="pr" type="number" step="0.01" placeholder="0.00" required></div>
-                <div class="form-group"><label>Stock</label><input class="form-control" name="s" type="number" value="0"></div>
+                <div class="form-group"><label>Precio de compra (RD$)</label><input class="form-control" name="purchasePrice" type="number" min="0" step="0.01" value="0"></div>
+                <div class="form-group"><label>Precio de venta (RD$) *</label><input class="form-control" name="pr" type="number" min="0" step="0.01" placeholder="0.00" required></div>
               </div>
+              <div class="form-group"><label>Stock</label><input class="form-control" name="s" type="number" min="0" step="1" value="0"></div>
               <div class="form-row">
                 <div class="form-group"><label>Stock Mínimo</label><input class="form-control" name="m" type="number" value="5"></div>
                 <div class="form-group"><label>Código</label><input class="form-control" name="b" value="${m.barcode}" readonly style="background:#f3f4f6"></div>
@@ -4833,7 +4867,6 @@ function exportPDF(dateStr) {
   const cards = [
     { label: "TRANSACCIONES", value: String(sales.length), color: BLUE },
     { label: "ARTÍCULOS VENDIDOS", value: String(itemCount), color: AMBER },
-    { label: "ITBIS (18%)", value: money(itbis), color: DARK },
     { label: "INGRESOS", value: money(total), color: GREEN },
   ];
   const gap = 4;
@@ -4987,11 +5020,9 @@ function exportPDF(dateStr) {
   doc.setFont(FONT, "normal");
   doc.setFontSize(9.5);
   doc.setTextColor(...GRAY);
-  doc.text("Subtotal", bx + 5, y + 8);
-  doc.text("ITBIS (18%)", bx + 5, y + 14.5);
+  doc.text("Subtotal", bx + 5, y + 12);
   doc.setTextColor(...DARK);
-  doc.text(money(subtotal), bx + bw - 5, y + 8, { align: "right" });
-  doc.text(money(itbis), bx + bw - 5, y + 14.5, { align: "right" });
+  doc.text(money(subtotal), bx + bw - 5, y + 1, { align: "right" });
 
   doc.setFillColor(...GREEN);
   doc.roundedRect(bx + 3, y + 18.5, bw - 6, 9, 2, 2, "F");
